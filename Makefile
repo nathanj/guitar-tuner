@@ -1,6 +1,6 @@
 CC     = gcc
-CFLAGS =
-LDLIBS = -lfftw3
+CFLAGS = -g
+LDLIBS = -lfftw3 -lasound
 
 dft: dft.o
 
