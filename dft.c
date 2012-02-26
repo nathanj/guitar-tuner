@@ -15,12 +15,55 @@
 
 #include <fftw3.h>
 #include <alsa/asoundlib.h>
+#include <SDL.h>
 
-#define SAMPLE_SIZE     (4096*2)
+#define SAMPLE_SIZE     (1024 * 2)
+#define SCREEN_WIDTH    320
+#define SCREEN_HEIGHT   240
+#define SCREEN_BPP      32
+#define HISTOGRAM_BINS  30
+#define BIN_WIDTH       (SAMPLE_SIZE / 2 / HISTOGRAM_BINS)
 
 snd_pcm_uframes_t frames = SAMPLE_SIZE;
 
 unsigned char *buffer;
+
+int init_sdl(SDL_Surface **screen)
+{
+	assert(screen);
+
+	if (SDL_Init(SDL_INIT_EVERYTHING) == -1) {
+		fprintf(stderr, "SDL_Init failed.\n");
+		return 1;
+	}
+
+	*screen = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT,
+				  SCREEN_BPP,
+				  SDL_SWSURFACE);
+
+	if (*screen == NULL) {
+		fprintf(stderr, "SDL_SetVideoMode failed.\n");
+		return 1;
+	}
+
+	SDL_WM_SetCaption("Guitar Tuner", NULL);
+
+	return 0;
+}
+
+void put_pixel(SDL_Surface *screen, int x, int y, Uint8 r, Uint8 g, Uint8 b)
+{
+	Uint32 *pixmem32;
+	Uint32 color;
+	int pitch;
+
+	color = SDL_MapRGB(screen->format, r, g, b);
+
+	pitch = y * screen->pitch / screen->format->BytesPerPixel;
+	pixmem32 = (Uint32 *) screen->pixels + pitch + x;
+	*pixmem32 = color;
+}
+
 
 int init_alsa(snd_pcm_t **handle)
 {
@@ -176,6 +219,33 @@ void idft(double complex *in, double complex *out, size_t len)
 }
 
 
+int draw(SDL_Surface *screen)
+{
+	if (SDL_Flip(screen) == -1) {
+		fprintf(stderr, "SDL_Flip failed.\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+int draw_hist(SDL_Surface *screen, int bin, double value)
+{
+	int x, y, starty, dir;
+
+	printf("bin=%d, value=%f\n", bin, value);
+
+	starty = 120 - value / 5000;
+	if (starty > 120)
+		dir = -1;
+	else
+		dir = 1;
+
+	for (x = bin * 10; x < bin * 10 + 10; x++) {
+		for (y = starty; y != 120; y += dir)
+			put_pixel(screen, x, y, abs(120 - y) * 2, 255, abs(120 - y) * 2);
+	}
+}
 
 
 int main()
@@ -193,6 +263,11 @@ int main()
 	fftw_plan p;
 	snd_pcm_t *handle;
 	double *fft_input;
+	SDL_Surface *screen;
+	int quit = 0;
+	SDL_Event event;
+	double histogram[HISTOGRAM_BINS];
+	int j;
 
 
 	in = fftw_malloc(sizeof(fftw_complex) * n);
@@ -256,12 +331,17 @@ int main()
 	fftw_free(in);
 	fftw_free(out);
 
+	if (init_sdl(&screen) != 0) {
+		fprintf(stderr, "init_sdl failed.\n");
+		return 1;
+	}
+
 	init_alsa(&handle);
 	fft_input = malloc(sizeof(double) * SAMPLE_SIZE);
 
 	out = fftw_malloc(sizeof(fftw_complex) * SAMPLE_SIZE);
 	p = fftw_plan_dft_r2c_1d(SAMPLE_SIZE, fft_input, out, FFTW_ESTIMATE);
-	while (1) {
+	while (!quit) {
 		int i;
 		double max = 0;
 		int max_i[10] = { 0 };
@@ -287,6 +367,17 @@ int main()
 			}
 		}
 
+		SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
+
+		for (i = 0; i < HISTOGRAM_BINS; i++) {
+			histogram[i] = 0;
+			for (j = 0; j < BIN_WIDTH; j++)
+				histogram[i] += out[i * BIN_WIDTH + j];
+			histogram[i] /= BIN_WIDTH;
+
+			draw_hist(screen, i, histogram[i]);
+		}
+
 		printf("max was %d %d %d %d %d\n",
 		       max_i[0],
 		       max_i[1],
@@ -294,9 +385,37 @@ int main()
 		       max_i[3],
 		       max_i[4]);
 
+		if (draw(screen) != 0) {
+			fprintf(stderr, "draw failed\n");
+			return 1;
+		}
+
+		while (SDL_PollEvent(&event)) {
+
+			switch (event.type) {
+			case SDL_QUIT:
+				quit = 1;
+				break;
+			case SDL_KEYDOWN:
+			case SDL_KEYUP:
+				switch (event.key.keysym.sym) {
+				case SDLK_q:
+					quit = 1;
+					break;
+				default:
+					break;
+				}
+				break;
+			default:
+				break;
+			}
+		}
+
 	}
 	fftw_destroy_plan(p);
 	fftw_free(out);
+
+	SDL_Quit();
 
 	return 0;
 }
