@@ -2,7 +2,7 @@
  * Computes the discrete fourier transform (DFT).
  */
 
-//#define WANT_SDL
+#define WANT_SDL
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,11 +14,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include <fftw3.h>
 #include <alsa/asoundlib.h>
 
-#define SAMPLE_SIZE     (1024 * 2)
+#define SAMPLE_SIZE     (1024 * 32)
 
 #ifdef WANT_SDL
 #include <SDL.h>
@@ -30,9 +31,50 @@
 #define BIN_WIDTH       (SAMPLE_SIZE / 2 / HISTOGRAM_BINS)
 #endif
 
+struct note_frequency {
+	const char *name;
+	int freq;
+	const char *shifted_name;
+};
+
+/*
+ * I don't know why, but the values I am getting from the Fourier
+ * transform are not what I expect. When I play a 'D' note, I get the
+ * frequency for 'A'. I always get the frequency for the note two and a
+ * half steps below what I expect. Until I figure it out, have a field
+ * for the shifted name so that I display the correct name.
+ */
+struct note_frequency frequencies[] =
+{
+	{ "C",  262, "F",  },
+	{ "C#", 277, "F#", },
+	{ "D",  294, "G",  },
+	{ "D#", 311, "G#", },
+	{ "E",  330, "A",  },
+	{ "F",  349, "A#", },
+	{ "F#", 370, "B",  },
+	{ "G",  392, "C",  },
+	{ "G#", 415, "C#", },
+	{ "A",  440, "D",  },
+	{ "A#", 466, "D#", },
+	{ "B",  494, "E",  },
+};
+
+#define MIN_FREQ 250
+#define MAX_FREQ 500
+#define NUM_FREQS (sizeof(frequencies) / sizeof(*frequencies))
+
 snd_pcm_uframes_t frames = SAMPLE_SIZE;
 
 unsigned char *buffer;
+
+int quit = 0;
+
+static void handler(int sig, siginfo_t *si, void *unused)
+{
+	printf("Got SIGINT, exiting...\n");
+	quit = 1;
+}
 
 #ifdef WANT_SDL
 int init_sdl(SDL_Surface **screen)
@@ -88,7 +130,7 @@ int draw_hist(SDL_Surface *screen, int bin, double value)
 
 	//printf("bin=%d, value=%f\n", bin, value);
 
-	starty = middle - value / 5000;
+	starty = middle - value;
 	if (starty > middle)
 		dir = -1;
 	else
@@ -143,7 +185,7 @@ int init_alsa(snd_pcm_t **handle)
 	/* Mono. */
 	rc = snd_pcm_hw_params_set_channels(*handle, params, 1);
 	if (rc < 0) {
-		printf("Unable to set to two channel stereo\n");
+		printf("Unable to set to mono\n");
 		return 1;
 	}
 
@@ -174,21 +216,13 @@ int init_alsa(snd_pcm_t **handle)
 
 	/* 16-bit, mono. */
 	size = frames * 2;
-	buffer = (unsigned char *) malloc(size);
+	buffer = malloc(size);
 
 	printf("Frames: %d\n", (int) frames);
-	printf("Allocating buffer of size: %d\n", size);
+	printf("Allocating buffer of size: %d %d\n", size, exact_rate);
 
 	return 0;
 
-}
-
-static char print_char(char c)
-{
-	if (isprint(c))
-		return c;
-	else
-		return '.';
 }
 
 void get_alsa(snd_pcm_t *handle, double *fft_input)
@@ -209,7 +243,7 @@ void get_alsa(snd_pcm_t *handle, double *fft_input)
 
 		/* Convert to double. */
 		for (i = 0; i < rc; i++) {
-			int16_t left = *(int16_t *) &buffer[i * 4];
+			int16_t left = *(int16_t *) &buffer[i * 2];
 
 			fft_input[i] = (double) left;
 		}
@@ -255,7 +289,36 @@ void idft(double complex *in, double complex *out, size_t len)
 	}
 }
 
+void print_closest_frequency(int val)
+{
+	struct note_frequency *closest = NULL;
+	int diff, closest_diff = 9999;
+	int i;
 
+	if (val < 20) {
+		printf("Frequency too low!\n");
+		return;
+	}
+
+	while (val < MIN_FREQ)
+		val *= 2;
+	while (val > MAX_FREQ)
+		val /= 2;
+
+	for (i = 0; i < NUM_FREQS; i++) {
+		diff = abs(frequencies[i].freq - val);
+		if (diff < closest_diff) {
+			closest_diff = diff;
+			closest = &frequencies[i];
+		}
+	}
+
+	if (closest)
+		printf("=> %s <= (diff: %d)\n", closest->shifted_name,
+		       closest_diff);
+	else
+		printf("closest = NULL!\n", closest);
+}
 
 int main()
 {
@@ -272,7 +335,8 @@ int main()
 	fftw_plan p;
 	snd_pcm_t *handle;
 	double *fft_input;
-	int quit = 0;
+	struct sigaction sa;
+	int rc;
 #ifdef WANT_SDL
 	SDL_Surface *screen;
 	SDL_Event event;
@@ -280,6 +344,17 @@ int main()
 	int j;
 #endif
 
+	sa.sa_flags = SA_SIGINFO;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_sigaction = handler;
+
+	rc = sigaction(SIGINT, &sa, NULL);
+	if (rc == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
+
+#if 0
 
 	in = fftw_malloc(sizeof(fftw_complex) * n);
 	out = fftw_malloc(sizeof(fftw_complex) * n);
@@ -341,6 +416,7 @@ int main()
 	fftw_destroy_plan(p);
 	fftw_free(in);
 	fftw_free(out);
+#endif
 
 #ifdef WANT_SDL
 	if (init_sdl(&screen) != 0) {
@@ -363,7 +439,7 @@ int main()
 
 		fftw_execute(p);
 
-		for (i = 0; i < SAMPLE_SIZE; i++) {
+		for (i = 0; i < SAMPLE_SIZE / 2; i++) {
 			double abs = cabs(out[i]);
 			if (abs > max) {
 				max = abs;
@@ -387,17 +463,32 @@ int main()
 		       max_i[3],
 		       max_i[4]);
 
+		print_closest_frequency(max_i[0]);
+
 #ifdef WANT_SDL
 		SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
 
 		for (i = 0; i < HISTOGRAM_BINS; i++) {
 			histogram[i] = 0;
 			for (j = 0; j < BIN_WIDTH; j++)
-				histogram[i] += out[i * BIN_WIDTH + j];
+				histogram[i] += cabs(out[i * BIN_WIDTH + j]);
+			histogram[i] /= 10000;
 			histogram[i] /= BIN_WIDTH;
 
 			draw_hist(screen, i, histogram[i]);
 		}
+
+		/*
+		for (i = 0; i < HISTOGRAM_BINS; i++) {
+			histogram[i] = 0;
+			for (j = 0; j < BIN_WIDTH; j++)
+				histogram[i] += fft_input[i * BIN_WIDTH + j];
+			histogram[i] /= BIN_WIDTH;
+			histogram[i] /= 5;
+
+			draw_hist(screen, i, histogram[i]);
+		}
+		*/
 
 		if (draw(screen) != 0) {
 			fprintf(stderr, "draw failed\n");
@@ -429,6 +520,10 @@ int main()
 	}
 	fftw_destroy_plan(p);
 	fftw_free(out);
+	free(fft_input);
+
+	snd_pcm_close(handle);
+	free(buffer);
 
 	SDL_Quit();
 
