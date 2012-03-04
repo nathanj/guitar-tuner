@@ -2,6 +2,8 @@
  * Computes the discrete fourier transform (DFT).
  */
 
+//#define WANT_SDL
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -15,19 +17,24 @@
 
 #include <fftw3.h>
 #include <alsa/asoundlib.h>
-#include <SDL.h>
 
 #define SAMPLE_SIZE     (1024 * 2)
-#define SCREEN_WIDTH    320
-#define SCREEN_HEIGHT   240
+
+#ifdef WANT_SDL
+#include <SDL.h>
+
+#define SCREEN_WIDTH    640
+#define SCREEN_HEIGHT   480
 #define SCREEN_BPP      32
-#define HISTOGRAM_BINS  30
+#define HISTOGRAM_BINS  50
 #define BIN_WIDTH       (SAMPLE_SIZE / 2 / HISTOGRAM_BINS)
+#endif
 
 snd_pcm_uframes_t frames = SAMPLE_SIZE;
 
 unsigned char *buffer;
 
+#ifdef WANT_SDL
 int init_sdl(SDL_Surface **screen)
 {
 	assert(screen);
@@ -63,6 +70,36 @@ void put_pixel(SDL_Surface *screen, int x, int y, Uint8 r, Uint8 g, Uint8 b)
 	pixmem32 = (Uint32 *) screen->pixels + pitch + x;
 	*pixmem32 = color;
 }
+
+int draw(SDL_Surface *screen)
+{
+	if (SDL_Flip(screen) == -1) {
+		fprintf(stderr, "SDL_Flip failed.\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+int draw_hist(SDL_Surface *screen, int bin, double value)
+{
+	int x, y, starty, dir;
+	int middle = SCREEN_HEIGHT / 2;
+
+	//printf("bin=%d, value=%f\n", bin, value);
+
+	starty = middle - value / 5000;
+	if (starty > middle)
+		dir = -1;
+	else
+		dir = 1;
+
+	for (x = bin * 10; x < bin * 10 + 10; x++) {
+		for (y = starty; y != middle; y += dir)
+			put_pixel(screen, x, y, abs(middle - y) * 2, 255, abs(middle - y) * 2);
+	}
+}
+#endif
 
 
 int init_alsa(snd_pcm_t **handle)
@@ -219,34 +256,6 @@ void idft(double complex *in, double complex *out, size_t len)
 }
 
 
-int draw(SDL_Surface *screen)
-{
-	if (SDL_Flip(screen) == -1) {
-		fprintf(stderr, "SDL_Flip failed.\n");
-		return 1;
-	}
-
-	return 0;
-}
-
-int draw_hist(SDL_Surface *screen, int bin, double value)
-{
-	int x, y, starty, dir;
-
-	printf("bin=%d, value=%f\n", bin, value);
-
-	starty = 120 - value / 5000;
-	if (starty > 120)
-		dir = -1;
-	else
-		dir = 1;
-
-	for (x = bin * 10; x < bin * 10 + 10; x++) {
-		for (y = starty; y != 120; y += dir)
-			put_pixel(screen, x, y, abs(120 - y) * 2, 255, abs(120 - y) * 2);
-	}
-}
-
 
 int main()
 {
@@ -263,11 +272,13 @@ int main()
 	fftw_plan p;
 	snd_pcm_t *handle;
 	double *fft_input;
-	SDL_Surface *screen;
 	int quit = 0;
+#ifdef WANT_SDL
+	SDL_Surface *screen;
 	SDL_Event event;
 	double histogram[HISTOGRAM_BINS];
 	int j;
+#endif
 
 
 	in = fftw_malloc(sizeof(fftw_complex) * n);
@@ -331,10 +342,12 @@ int main()
 	fftw_free(in);
 	fftw_free(out);
 
+#ifdef WANT_SDL
 	if (init_sdl(&screen) != 0) {
 		fprintf(stderr, "init_sdl failed.\n");
 		return 1;
 	}
+#endif
 
 	init_alsa(&handle);
 	fft_input = malloc(sizeof(double) * SAMPLE_SIZE);
@@ -367,6 +380,14 @@ int main()
 			}
 		}
 
+		printf("max was %d %d %d %d %d\n",
+		       max_i[0],
+		       max_i[1],
+		       max_i[2],
+		       max_i[3],
+		       max_i[4]);
+
+#ifdef WANT_SDL
 		SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
 
 		for (i = 0; i < HISTOGRAM_BINS; i++) {
@@ -377,13 +398,6 @@ int main()
 
 			draw_hist(screen, i, histogram[i]);
 		}
-
-		printf("max was %d %d %d %d %d\n",
-		       max_i[0],
-		       max_i[1],
-		       max_i[2],
-		       max_i[3],
-		       max_i[4]);
 
 		if (draw(screen) != 0) {
 			fprintf(stderr, "draw failed\n");
@@ -410,6 +424,7 @@ int main()
 				break;
 			}
 		}
+#endif
 
 	}
 	fftw_destroy_plan(p);
