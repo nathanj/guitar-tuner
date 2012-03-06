@@ -160,54 +160,85 @@ int init_alsa(snd_pcm_t **handle)
 
 	/* Allocate a hardware parameter object and fill it with default
 	 * values. */
-	snd_pcm_hw_params_alloca(&params);
-	snd_pcm_hw_params_any(*handle, params);
+	rc = snd_pcm_hw_params_malloc(&params);
+	if (rc < 0) {
+		printf("Unable to set allocate hardware params: %s\n",
+		       snd_strerror(rc));
+		return 1;
+	}
+
+	rc = snd_pcm_hw_params_any(*handle, params);
+	if (rc < 0) {
+		printf("Unable to initialize hardware params: %s\n",
+		       snd_strerror(rc));
+		return 1;
+	}
 
 	/* Interleaved. */
-	rc = snd_pcm_hw_params_set_access(*handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
+	rc = snd_pcm_hw_params_set_access(*handle, params,
+					  SND_PCM_ACCESS_RW_INTERLEAVED);
 	if (rc < 0) {
-		printf("Unable to set interleaved mode\n");
+		printf("Unable to set interleaved mode: %s\n",
+		       snd_strerror(rc));
 		return 1;
 	}
 
 	/* Signed 16-bit little-endian format. */
-	rc = snd_pcm_hw_params_set_format(*handle, params, SND_PCM_FORMAT_S16_LE);
+	rc = snd_pcm_hw_params_set_format(*handle, params,
+					  SND_PCM_FORMAT_S16_LE);
 	if (rc < 0) {
-		printf("Unable to set format\n");
+		printf("Unable to set format: %s\n",
+		       snd_strerror(rc));
 		return 1;
 	}
 
 	/* Mono. */
 	rc = snd_pcm_hw_params_set_channels(*handle, params, 1);
 	if (rc < 0) {
-		printf("Unable to set to mono\n");
+		printf("Unable to set to mono: %s\n",
+		       snd_strerror(rc));
 		return 1;
 	}
 
 	/* 44.1 Khz */
 	rc = snd_pcm_hw_params_set_rate_near(*handle, params, &exact_rate, 0);
 	if (rc < 0) {
-		printf("Error setting rate\n");
+		printf("Error setting rate: %s\n",
+		       snd_strerror(rc));
 		return 1;
 	}
 
 	if (rate != exact_rate) {
-		printf("%d Hz not supported. Using %d Hz instead", rate, exact_rate);
+		printf("%d Hz not supported. Using %d Hz instead", rate,
+		       exact_rate);
 	}
 
 	/* Set period size to 32 frames. */
-	rc = snd_pcm_hw_params_set_period_size_near(*handle, params, &frames, &dir);
+	rc = snd_pcm_hw_params_set_period_size_near(*handle, params, &frames,
+						    &dir);
 	if (rc < 0) {
-		printf("Error setting period size\n");
+		printf("Error setting period size: %s\n",
+		       snd_strerror(rc));
 		return 1;
 	}
 
 	/* Write the parameters to the driver. */
 	rc = snd_pcm_hw_params(*handle, params);
 	if (rc < 0) {
-		printf("Unable to set hw parameters: %s\n", snd_strerror(rc));
+		printf("Unable to set hw parameters: %s\n",
+		       snd_strerror(rc));
 		return 1;
 	}
+
+	/* Prepare interface. */
+	rc = snd_pcm_prepare(*handle);
+	if (rc < 0) {
+		printf("Unable to prepare audio interface: %s\n",
+		       snd_strerror(rc));
+		return 1;
+	}
+
+	snd_pcm_hw_params_free(params);
 
 	/* 16-bit, mono. */
 	size = frames * 2;
