@@ -19,7 +19,7 @@
 #include <fftw3.h>
 #include <alsa/asoundlib.h>
 
-#define SAMPLE_SIZE     (1024 * 32)
+#define SAMPLE_SIZE     (1024 * 8)
 
 #ifdef WANT_SDL
 #include <SDL.h>
@@ -27,8 +27,8 @@
 #define SCREEN_WIDTH    640
 #define SCREEN_HEIGHT   480
 #define SCREEN_BPP      32
-#define HISTOGRAM_BINS  50
-#define BIN_WIDTH       (SAMPLE_SIZE / 2 / HISTOGRAM_BINS)
+#define HISTOGRAM_BINS  500
+#define BIN_WIDTH       1
 #endif
 
 struct note_frequency {
@@ -125,21 +125,16 @@ int draw(SDL_Surface *screen)
 
 int draw_hist(SDL_Surface *screen, int bin, double value)
 {
-	int x, y, starty, dir;
-	int middle = SCREEN_HEIGHT / 2;
+	int y, starty;
 
 	//printf("bin=%d, value=%f\n", bin, value);
 
-	starty = middle - value;
-	if (starty > middle)
-		dir = -1;
-	else
-		dir = 1;
+	starty = SCREEN_HEIGHT - value;
+	if (starty < 0)
+		starty = 0;
 
-	for (x = bin * 10; x < bin * 10 + 10; x++) {
-		for (y = starty; y != middle; y += dir)
-			put_pixel(screen, x, y, abs(middle - y) * 2, 255, abs(middle - y) * 2);
-	}
+	for (y = starty; y != SCREEN_HEIGHT; y++)
+		put_pixel(screen, bin, y, abs(SCREEN_HEIGHT - y)/2, 255, abs(SCREEN_HEIGHT - y)/2);
 }
 #endif
 
@@ -472,7 +467,7 @@ int main()
 			histogram[i] = 0;
 			for (j = 0; j < BIN_WIDTH; j++)
 				histogram[i] += cabs(out[i * BIN_WIDTH + j]);
-			histogram[i] /= 10000;
+			histogram[i] /= 50000;
 			histogram[i] /= BIN_WIDTH;
 
 			draw_hist(screen, i, histogram[i]);
