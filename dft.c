@@ -451,9 +451,12 @@ int main()
 	}
 #endif
 
-	init_alsa(&handle);
+	rc = init_alsa(&handle);
+	if (rc != 0) {
+		printf("init_alsa failed\n");
+		exit(-1);
+	}
 	fft_input = malloc(sizeof(double) * SAMPLE_SIZE);
-
 	out = fftw_malloc(sizeof(fftw_complex) * SAMPLE_SIZE);
 	p = fftw_plan_dft_r2c_1d(SAMPLE_SIZE, fft_input, out, FFTW_ESTIMATE);
 	while (!quit) {
