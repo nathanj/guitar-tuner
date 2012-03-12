@@ -34,30 +34,22 @@
 struct note_frequency {
 	const char *name;
 	int freq;
-	const char *shifted_name;
 };
 
-/*
- * I don't know why, but the values I am getting from the Fourier
- * transform are not what I expect. When I play a 'D' note, I get the
- * frequency for 'A'. I always get the frequency for the note two and a
- * half steps below what I expect. Until I figure it out, have a field
- * for the shifted name so that I display the correct name.
- */
 struct note_frequency frequencies[] =
 {
-	{ "C",  262, "F",  },
-	{ "C#", 277, "F#", },
-	{ "D",  294, "G",  },
-	{ "D#", 311, "G#", },
-	{ "E",  330, "A",  },
-	{ "F",  349, "A#", },
-	{ "F#", 370, "B",  },
-	{ "G",  392, "C",  },
-	{ "G#", 415, "C#", },
-	{ "A",  440, "D",  },
-	{ "A#", 466, "D#", },
-	{ "B",  494, "E",  },
+	{ "C",  262 },
+	{ "C#", 277 },
+	{ "D",  294 },
+	{ "D#", 311 },
+	{ "E",  330 },
+	{ "F",  349 },
+	{ "F#", 370 },
+	{ "G",  392 },
+	{ "G#", 415 },
+	{ "A",  440 },
+	{ "A#", 466 },
+	{ "B",  494 },
 };
 
 #define MIN_FREQ 250
@@ -142,7 +134,7 @@ int draw_hist(SDL_Surface *screen, int bin, double value)
 int init_alsa(snd_pcm_t **handle)
 {
 	snd_pcm_hw_params_t *params;
-	unsigned int rate = 44100;
+	unsigned int rate = 32768;
 	unsigned int exact_rate = rate;
 	unsigned int dir = 0;
 	int rc;
@@ -340,8 +332,7 @@ void print_closest_frequency(int val)
 	}
 
 	if (closest)
-		printf("=> %s <= (diff: %d)\n", closest->shifted_name,
-		       closest_diff);
+		printf("=> %s <= (diff: %d)\n", closest->name, closest_diff);
 	else
 		printf("closest = NULL!\n", closest);
 }
